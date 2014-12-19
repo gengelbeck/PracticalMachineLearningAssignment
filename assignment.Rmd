@@ -1,0 +1,229 @@
+---
+title: 'Practical Machine Learning: Course Project'
+author: "gengelbeck"
+date: "22 December 2014"
+output:
+  html_document:
+    css: vsstyle.css
+    keep_md: yes
+---
+
+```{r echo=FALSE}
+setwd("/media/george/UUI/DataScience/MachineLearning/assignment/")
+library(caret)
+library(randomForest)
+library(xtable)
+training <- read.csv(file="data/pml-training.csv", stringsAsFactors=FALSE)
+```
+
+# Abstract
+The goal of this project is to predict the manner in which users exercised. Using a random forest model we were able to correctly classify 19 of 20 (95 percent) of the activities in the test data set correctly.
+
+This was outside the expected accuracy range given the accuracy of our model against our validation data set. (The 95 percent confidence interval for our validation data set was between 0.9867 and 0.9921.) This may suggest that our model could be made more accurate or it may reflect variability due to the small number of test cases.
+
+# Introduction
+
+## Background
+Using sensor data we set out to predict the activities of participants who are lifting an exercise weight. While desirable, our goal *was not* to create a predictive model that was easy to interpret: For us, predictive accuracy was paramount, understanding was secondary.
+
+# Method
+
+## Data Collection
+For our analysis we used a data set of 19,642 weight lifting recordings from 6 participants using a 1.25kg dumbbell over an 8 hour period.
+
+This data set contains our outcome variable (classe), a participant identifier (user_name), and  sensor covariates. Briefly, the data set contains:
+
+  + An identifier for the weight-lifting exercise a participant was engaged in. (Our outcome variable.)
+  + A participant identifier,
+  + 157 time and frequency domain variables capturing:
+    + Pitch, roll, and yaw of the arm, forearm, and dumbbell sensors,
+    + Angular velocity from the gyroscope.
+
+Details about this data set are available at the [Groupware LES HAR Project](http://groupware.les.inf.puc-rio.br/har) where the data set is available for download.
+
+## Splitting the dataset
+We partitioned our original data set into two separate data sets: a training set with about 70 percent of our observations, and validation data set containing about 30 percent of our observations.
+
+A final test data set of 20 test cases was provided. The test data set
+was used once to test the prediction accuracy of our final model.
+
+```{r echo=FALSE}
+train_set <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+train_ds <- training[train_set,]
+valid_ds <- training[-train_set,]
+```
+
+## Exploratory Analysis
+An exploratory analysis was performed by examining tables and plots of our data. Exploratory analysis was used to:
+
+  + Identify variables with no practical value
+  + Identify variables with near zero variability
+  + Verify the quality of the data, and
+  + Identify missing values -- none were found
+
+### Variables of no practical value
+Since we wished to predict the exercise engaged in independent of date and time we eliminated *raw_timestamp_part_1*,  *raw_timestamp_part_2*,	and *cvtd_timestamp* as variables in the training data set.
+```{r echo=FALSE}
+train_ds$raw_timestamp_part_1 <- NULL
+train_ds$raw_timestamp_part_2 <- NULL
+train_ds$cvtd_timestamp <- NULL
+```
+Since we wished to predict the exercise engaged in independent of date and time we eliminated *raw_timestamp_part_1*,  *raw_timestamp_part_2*,  and *cvtd_timestamp* as variables in the training data set.
+
+We eliminated *X*, *user_name*, *new_window* and *num_window* since these were measurement labels and not predictors.
+```{r echo=FALSE}
+train_ds$X <- NULL
+train_ds$user_name <- NULL
+train_ds$new_window <- NULL
+train_ds$num_window <- NULL
+```
+
+We eliminated summary statistics for the data set. These were the variables beginning with var_, kurtosis_, max_, min_, avg_, stddev_, amplitude_, total_, and skewness_.
+```{r echo=FALSE}
+train_ds <- train_ds[,-grep("var_|kurtosis_|max_|min_|avg_|stddev_|amplitude_|total_|skewness_", names(train_ds))]
+```
+
+## Predictor filtering
+### Elimiate near-zero varability covariates
+We checked to see if we had covariates with near-zero variability. There were none.
+```{r echo=FALSE}
+nzvars <- nearZeroVar(train_ds[1:length(train_ds) - 1])
+if (length(nzvars > 0)) train_ds <- train_ds[,-nzvars]
+```
+
+### Elminate unneeded corvariates
+Given the large number of highly correlated predictors, we set about eliminating unneeded covariates. We used the procedure suggested by Kuhn & Johnson (2013) p. 47 for reducing the effects of multicollinearity. Using this procedure, 6 of 52 covariates were removed from the data set, leaving us with 46 covariates. (The covariates removed were: accel_belt_z, roll_belt, accel_belt_x, gyros_arm_y, gyros_forearm_z, and gyros_dumbbell_x)
+
+```{r echo=FALSE}
+# Kuhn & Johnson (2013) p. 47
+highCorr <- cor(train_ds[1:length(train_ds) - 1])
+highCorr <- findCorrelation(highCorr, cutoff=0.90)
+train_ds <- train_ds[, -highCorr]
+```
+
+### Correlation of remaining predictors
+```{r echo=FALSE}
+library(corrplot)
+corrplot(cor(train_ds[1:length(train_ds) - 1]), order="hclust")
+#featurePlot(train_ds, y=train_ds, plot="pairs")
+```
+
+## Random Forest Model
+We created a Random Forest Model to predict activities in the training
+data set. We fit a random forest models of 10 trees to our test data set using R’s randomForest
+package. (See [4] for a discussion of the randomForest package.) The resulting random forest
+model classified 13729 of 13737 correctly for a correct classification rate of about 0.99.
+
+```{r echo=FALSE}
+set.seed(1233)
+train_ds$classe <- as.factor(train_ds$classe)
+valid_ds$classe <- as.factor(valid_ds$classe)
+train_ds <- na.omit(train_ds)
+
+# train the rf model
+model_rf <- randomForest(classe~., data=train_ds, prox=TRUE, ntree=10)
+```
+
+#### Fit for the training data set
+Our random forest model had a 99.9 percent accuracy rate. We accepted the model and applied it to our validation data set.
+```{r echo=FALSE}
+predictions_rf <- predict(model_rf, train_ds, type="class")
+# summarize results
+confusionMatrix(predictions_rf, train_ds$classe)
+```
+#### Make predictions for the validation data set
+Our random forest model had a 98.9 percent accuracy rate - A drop of 1 percent. We accepted this as our model for submission and we next applied it to the 20 test cases.
+```{r echo=FALSE}
+predictions_rf_v <- predict(model_rf, valid_ds, type="class")
+# summarize results
+confusionMatrix(predictions_rf_v, valid_ds$classe)
+```
+
+## Predictions for the test data set
+Finally, we tested our random forest model against our test data set. We were able to correctly
+classify 19 of 20 activities for a correct classification rate of about 0.95. This was a drop of
+about 0.039 in the accuracy rate from our validation data set.
+
+```{r echo=FALSE}
+testing <- read.csv(file="data/pml-testing.csv", stringsAsFactors=FALSE)
+answers <- predict(model_rf, testing, type="class")
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+## Results
+
+### Predictive Accuracy
+We created a random forest model that was able to correctly classify about 95 percent of the
+activities in our test data set. The table below presents the confusion matrix for our random forest
+model when applied to the validation data set.
+
+The confusion matrix shows that most prediction confusions occurred when predicting activities standing (C) and standing down (D). With our test data set, 35 of 62 (about 57 percent) of misclassifications were
+confusions between standing and standing down. See the table below for the table of confusions for
+our validation data set.
+
+Table: Confusion matrix the resulted from using the random forest model to predict activities in
+our test data set. Observed misclassification counts have been highlighted. The rows are predictions while columns are observed activities.
+```{r echo=FALSE, results='asis'}
+cm <- table(predictions_rf_v, valid_ds$classe)
+print(xtable(cm), type="html")
+```
+
+### Covariate Importance
+Our random forest model used the 42 covariates available to it. As the Figure below shows, not all our were
+covariates were equally important as predictors.
+
+The ten most important predictors as measured by Mean Decrease in Gini coefficients are shown
+in the Table below. These covariates may indicates the relative importance of distinguishing energy and
+acceleration caused by humans and that caused by gravitational forces.
+
+```{r echo=FALSE, results='asis'}
+top <- as.data.frame.matrix(model_rf$importance)
+top$names <- rownames(top)
+foo <- top[with(top, order(-MeanDecreaseGini)),] 
+row.names(foo) <- 1:nrow(foo)
+foo$Proportion <- round(foo$MeanDecreaseGini / sum(top$MeanDecreaseGini),2)
+print(xtable(foo[,c("names","MeanDecreaseGini","Proportion")]), type="html")
+```
+
+To increase the comprehensibility of the model – not a goal for us – it may be worthwhile
+to reduce the number of covariates used by the model.
+
+## Conclusions
+
+### Predicting Activities
+We were able to create a random forest model that was able to classify 95 percent of the
+activities in our test data set correctly.
+
+Our accuracy was outside the expected accuracy range given the accuracy of our model against our validation data set. (The 95 percent confidence interval for our validation data set was between 0.9867 and 0.9921.) This may suggest that our model could be made more accurate or it may reflect variability due to the small number of test cases.
+
+### Limitations
+Our understanding of the covariates provided in the data set was limited. Perhaps
+many of the covariates in the data set could be combined into more accurate and sensible activity
+measures with physical correlates that would be easier to interpret and communicate. Greater
+knowledge of the domain may provide us with a model that is both understandable and accurate.
+
+Additionally, our model is limited to the activities covered by the experiment. Our predictive
+model would not generalize to other activities that are not in the original model (legs lifts,...).
+
+```{r echo=FALSE}
+save.image("assignment.Rdata")
+```
+
+# References
+[1] Kuhn, M., & Johnson, K. (2013). *Applied Predictive Modeling*. Springer: New York.
+
+[2] Ugulino, W., Cardador, D., Vega, K.; Velloso, E., Milidiu, R., Fuks, H. (2012). Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. *Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012: Lecture Notes in Computer Science*, Curitiba, PR, Springer Berlin: Heidelberg, pp. 52-61.
+
+[3] The data set we used was originally downloaded from [Groupware LES HAR Project](http://groupware.les.inf.puc-rio.br/har) website on March 21, 2013.
+
+[4] Liaw, A., & Wiener, M., Classification and Regression by randomForest. R News: The
+Newsletter of the R Project, 18-22, [http://cran.r-project.org/doc/Rnews/Rnews_2002-3.pdf](http://cran.r-project.org/doc/Rnews/Rnews_2002-3.pdf), December, 2002.
