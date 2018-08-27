@@ -9,6 +9,7 @@ output:
 ---
 
 ```{r echo=FALSE}
+# Load libraries
 setwd("/media/george/UUI/DataScience/MachineLearning/assignment/")
 library(caret)
 library(randomForest)
